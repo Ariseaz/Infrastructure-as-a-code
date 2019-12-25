@@ -1,0 +1,76 @@
+Description: 'This cloudformation script creates an Amazon RDS Database Instance with a DBParameterGroup.'
+
+Parameters:
+
+    EnvironmentName:
+        Description: An Environment Name that will be prefixed to resources
+        Type: String
+    DBName:
+        Description: Name of the database
+        Type: String
+    DBUser:
+        Description: The master user name for the DB instance
+        Type: String
+    DBPassword:
+        NoEcho: 'true'
+        Description: The master password for the DB instance
+        Type: String
+        MinLength: '1'
+        MaxLength: '41'
+        AllowedPattern: '[a-zA-Z0-9]+'
+    Engine:
+        Description: 'Aurora engine and version'
+        Type: String
+    DBInstanceClass:
+        Description: 'DB instance class'
+        Type: String
+
+Resources:
+# This is an EC Security Group to use for traffic access to the server
+    WebServerSecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Enable HTTP access via port 80 and SSH access
+            SecurityGroupIngress:
+            - IpProtocol: tcp
+              FromPort: '80'
+              ToPort: '80'
+              CidrIp: 0.0.0.0/0
+            - IpProtocol: tcp
+              FromPort: '22'
+              ToPort: '22'
+              CidrIp: 0.0.0.0/0
+# This works with the WebServerSecurityGroup to limit traffic to db instance alone
+    DBEC2SecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Open database for access
+            VpcId:
+                Fn::ImportValue:
+                    !Sub "${EnvironmentName}-VPCID"
+            SecurityGroupIngress:
+            - IpProtocol: tcp
+              FromPort: '3306'
+              ToPort: '3306'
+# This is used to position the NEW DB in the 2 Private Subnets 1 and 2
+    DBSubnetGroup:
+        Type: 'AWS::RDS::DBSubnetGroup'
+        Properties:
+            DBSubnetGroupDescription: This is something to worry about
+            SubnetIds: !Split [',', {'Fn::ImportValue': !Sub '${EnvironmentName}-PRI-NETS'}]
+
+# Create RDS Database from here
+    MyDB:
+        Type: AWS::RDS::DBInstance
+        Properties:
+            DBName: !Ref 'DBName'
+            DBInstanceClass: !Ref 'DBInstanceClass'
+            Engine: !Ref 'Engine'
+            MasterUsername: !Ref 'DBUser'
+            MasterUserPassword: !Ref 'DBPassword'
+            AllocatedStorage: '5'
+            DBSubnetGroupName: !Ref 'DBSubnetGroup'
+            VPCSecurityGroups:
+            - !GetAtt DBEC2SecurityGroup.GroupId
+            DeleteAutomatedBackups: false
+            DeletionProtection: false

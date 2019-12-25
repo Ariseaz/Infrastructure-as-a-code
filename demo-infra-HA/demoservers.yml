@@ -1,0 +1,155 @@
+Description: >
+    Adeniji Azeez / Udacity-class Work
+    This template deploys SERVERS for my network
+
+Parameters:
+
+    EnvironmentName:
+        Description: An Environment Name that will be prefixed to resources
+        Type: String
+
+# Start Creating Resources
+Resources:
+# Create Security Group For Load Balancers: This is needed to trim traffic to only web traffic
+    LBSecGroup:
+        Type: "AWS::EC2::SecurityGroup"
+        Properties:
+            GroupDescription: Allow http traffic to load balancer
+            GroupName: LBSecGroup
+            VpcId:
+                Fn::ImportValue:
+                    !Sub "${EnvironmentName}-VPCID"
+            SecurityGroupIngress:
+            -   IpProtocol: tcp
+                FromPort: 80
+                ToPort: 80
+                CidrIp: 0.0.0.0/0
+            -   IpProtocol: tcp
+                FromPort: 8080
+                ToPort: 8080
+                CidrIp: 0.0.0.0/0
+            SecurityGroupEgress:
+            -   IpProtocol: tcp
+                FromPort: 0
+                ToPort: 65535
+                CidrIp: 0.0.0.0/0
+
+# Create Security Group For WebServers: This is needed to accept web & ssh traffic for hosts
+    WebServersSecGroup:
+        Type: "AWS::EC2::SecurityGroup"
+        Properties:
+            GroupDescription: Allow http traffic to load balancer
+            GroupName: WebServersSecGroup
+            VpcId:
+                Fn::ImportValue:
+                    !Sub "${EnvironmentName}-VPCID"
+            SecurityGroupIngress:
+            -   IpProtocol: tcp
+                FromPort: 8080
+                ToPort: 8080
+                CidrIp: 0.0.0.0/0
+            -   IpProtocol: tcp
+                FromPort: 22
+                ToPort: 22
+                CidrIp: 0.0.0.0/0
+            SecurityGroupEgress:
+            -   IpProtocol: tcp
+                FromPort: 0
+                ToPort: 65535
+                CidrIp: 0.0.0.0/0
+
+# Launch Configuration for Autoscalling group: Need to spin up instance for an autoscaling group
+    WebAppLunchConfig:
+        Type: AWS::AutoScaling::LaunchConfiguration
+        Properties:
+            UserData:
+                Fn::Base64: !Sub |
+                    #!/bin/bash
+                    # Install docker
+                    sudo apt-get update
+                    sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+                    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add 
+                    sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu  $(lsb_release -cs)  stable"
+                    sudo apt-get update
+                    sudo apt-get install -y docker-ce
+                    sudo usermod -aG docker ubuntu
+                    sudo docker run -dit --name tecmint-web -p 8080:80 httpd:2.4
+            ImageId: ami-06d51e91cea0dac8d
+            KeyName:  test-instance-udacity-cloudformation
+            SecurityGroups:
+            - Ref: WebServersSecGroup
+            InstanceType: t2.micro
+            BlockDeviceMappings:
+            - DeviceName: "/dev/sda1"
+              Ebs:
+                  VolumeSize: '10'
+
+# Create Auto Scaling group for Web App Instances that will be running in the Private Subnets
+    WebAppGroup:
+        Type: AWS::AutoScaling::AutoScalingGroup
+        Properties:
+            VPCZoneIdentifier:
+            - Fn::ImportValue:
+                !Sub "${EnvironmentName}-PRI-NETS"
+            LaunchConfigurationName:
+                Ref: WebAppLunchConfig
+            MinSize: '3'
+            MaxSize: '5'
+            TargetGroupARNs:
+            - Ref: WebAppTargetGroup
+
+# Create a Loadbalancer for the web Servers, put it in the Public Subnets but not with a single point of failure
+    WebAppLB:
+        Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+        Properties:
+            Subnets:
+                - Fn::ImportValue: !Sub "${EnvironmentName}-PUB1-SN"
+                - Fn::ImportValue: !Sub "${EnvironmentName}-PUB2-SN"
+            SecurityGroups:
+            - Ref: LBSecGroup
+
+# This part:Target grp is a property of the autoscaling grp, goes to port 8080 of instances to check
+#...HTTP response, if it fails healthcheck it communicates with the autoscaling group to spin up a new one 
+# This Loadbalancer Target Group indicate resources within the VPC as the target for the LB
+    WebAppTargetGroup:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            HealthCheckIntervalSeconds: 10
+            HealthCheckPath: /
+            HealthCheckProtocol: HTTP
+            HealthCheckTimeoutSeconds: 8
+            HealthyThresholdCount: 2
+            VpcId:
+                Fn::ImportValue:
+                    Fn::Sub: "${EnvironmentName}-VPCID"
+            UnhealthyThresholdCount: 5
+            Port: 8080
+            Protocol: HTTP
+
+# This is the Listener for the WebAppTargetGroup above, it talks to this for actions
+# Listener is working with the target group which also works with autoscaling group
+    Listener:
+        Type: AWS::ElasticLoadBalancingV2::Listener
+        Properties:
+            DefaultActions:
+            - Type: forward
+              TargetGroupArn:
+                  Ref: WebAppTargetGroup
+            LoadBalancerArn: 
+                Ref: WebAppLB
+            Port: '80'
+            Protocol: HTTP
+
+# This is the Rule for the Listener Above
+# Create a Security Rule (Group) for the Listener
+    ELBListenerRule:
+        Type: AWS::ElasticLoadBalancingV2::ListenerRule
+        Properties:
+            Actions: 
+            - Type: forward
+              TargetGroupArn: !Ref 'WebAppTargetGroup'
+            Conditions:
+            - Field: path-pattern
+              Values: [/]
+            ListenerArn: !Ref 'Listener'
+            Priority: 1

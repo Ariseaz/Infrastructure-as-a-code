@@ -1,0 +1,26 @@
+[
+    {   
+        "ParameterKey": "EnvironmentName",
+        "ParameterValue": "UdacityCLASSdemo"
+    },
+    {   
+        "ParameterKey": "DBName",
+        "ParameterValue": "MyDatabase"
+    },
+    {   
+        "ParameterKey": "DBUser",
+        "ParameterValue": "root"
+    },
+    {   
+        "ParameterKey": "DBPassword",
+        "ParameterValue": "Liteworks"
+    },
+    {   
+        "ParameterKey": "Engine",
+        "ParameterValue": "MySQL"
+    },
+    {   
+        "ParameterKey": "DBInstanceClass",
+        "ParameterValue": "db.t2.small"
+    }
+]

@@ -1,16 +1,11 @@
-AWSTemplateFormatVersion: 2010-09-09
-Description: |
-  
-Parameters:
-  
-Metadata:
-  
-Mappings:
-  
-Conditions:
-  
-Resources:
-  
-Transform:
-  
-Outputs:
+LogicalID:
+  Type: "AWS::EC2::Subnet"
+  Properties:
+    AssignIpv6AddressOnCreation: Boolean
+    AvailabilityZone: String
+    CidrBlock: String #required
+    Ipv6CidrBlock: String
+    MapPublicIpOnLaunch: Boolean
+    Tags:
+      - Tag
+    VpcId: String #required
