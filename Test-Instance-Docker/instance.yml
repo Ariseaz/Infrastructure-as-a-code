@@ -1,0 +1,159 @@
+Description: >
+    Adeniji Azeez / High-Availabity web App ProjectWork
+    This is the Bastion Host For remote access to the Network Infrastructure
+
+Parameters:
+
+    EnvironmentName:
+        Description: This Environment Name for the deployment
+        Type: String
+
+    KeyName:
+        Description: This the ssh key for the ec2 bastion host
+        Type: String
+
+    VpcCIDR:
+        Description: Enter the IP Range for this CIDR value
+        Type: String
+        Default: 10.20.0.0/16
+
+    PublicSubnetCIDR:
+        Description: Enter IP Range for this Subnet CIDR value
+        Type: String
+        Default: 10.20.0.0/24
+
+# Start Creating Resources
+Resources:
+
+    VPC:
+        Type: AWS::EC2::VPC
+        Properties:
+            CidrBlock: !Ref VpcCIDR
+            EnableDnsHostnames: true
+            EnableDnsSupport: true
+            Tags:
+                - Key: Name
+                  Value: !Ref EnvironmentName
+
+# Internet Connection
+# Internet Gateway for VPC
+    InternetGateway:
+        Type: AWS::EC2::InternetGateway
+        Properties:
+            Tags:
+                - Key: Name
+                  Value: !Ref EnvironmentName
+# Attache Internet Gateway to the Created VPC
+    InternetGatewayAttachment:
+        Type: AWS::EC2::VPCGatewayAttachment
+        Properties:
+            InternetGatewayId: !Ref InternetGateway
+            VpcId: !Ref VPC
+
+# Subnet Creation Starts Here
+# Declare Public Facing Subnet
+    PublicSubnet:
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref VPC
+            CidrBlock: !Ref PublicSubnetCIDR
+            MapPublicIpOnLaunch: true
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Public Subnet (AZ1)
+
+
+# Routing Starts From Here
+# Declaration for Route Table for the Public Route in the VPC
+    PublicRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties:
+            VpcId: !Ref VPC
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Public Routes
+# Declare Default Route for the Route Table PublicRouteTable (This will go through the Internet Gateway)
+    DefaultPublicRoute:
+        Type: AWS::EC2::Route
+        DependsOn: InternetGatewayAttachment
+        Properties:
+            RouteTableId: !Ref PublicRouteTable
+            DestinationCidrBlock: 0.0.0.0/0
+            GatewayId: !Ref InternetGateway
+
+# Public Subnets Routing
+# Associat/Link Public Subnet 1 to the Route Table (PublicRouteTable). It allows for internet connection
+    PublicSubnetRouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PublicRouteTable
+            SubnetId: !Ref PublicSubnet
+
+# Security Group
+# This is needed to limit traffic to port 22 only to the bastion host
+    TestHostSecGroup:
+        Type: "AWS::EC2::SecurityGroup"
+        Properties:
+            GroupDescription: Allow ssh access to the test Host
+            SecurityGroupIngress:
+            -   IpProtocol: tcp
+                FromPort: 0
+                ToPort: 65535
+                CidrIp: 0.0.0.0/0
+            SecurityGroupEgress:
+            -   IpProtocol: tcp
+                FromPort: 0
+                ToPort: 65535
+                CidrIp: 0.0.0.0/0
+            Tags:
+                - Key: Name
+                  Value: Jenkins
+            VpcId: !Ref VPC
+
+# Bastion Instance Creation
+    TestHostInstance:
+        Type: "AWS::EC2::Instance"
+        Properties:
+            UserData: 
+                Fn::Base64: !Sub |
+                    #!/bin/bash
+                    # Install unzip, awscli, git n docker
+                    sudo apt-get update -y
+                    sudo apt-get install unzip awscli git -y
+                    sudo apt-get install apt-transport-https ca-certificates curl software-properties-common -y
+                    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add
+                    sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu  $(lsb_release -cs)  stable"
+                    sudo apt-get install -y docker-ce
+                    sudo usermod -aG docker ubuntu
+                    sudo apt-get update -y
+                    sudo systemctl status docker
+                    # build docker images, dockerfile, docker swam
+            ImageId: ami-06d51e91cea0dac8d
+            SecurityGroupIds:
+            - Ref: TestHostSecGroup
+            KeyName: !Ref KeyName
+            InstanceType: t2.micro
+            BlockDeviceMappings:
+            - DeviceName: "/dev/sda1"
+              Ebs:
+                  VolumeSize: '10'
+            SubnetId: !Ref PublicSubnet
+
+# Output SEction
+Outputs:
+
+  InstanceId:
+    Description: Instance ID of the bastion host
+    Value:
+        Ref: TestHostInstance
+    Export:
+      Name: !Sub "${EnvironmentName}-TestHost"
+
+  PublicIP: 
+    Description: "Public IP address of the newly created EC2 instance"
+    Value:
+        Fn::GetAtt: 
+            - TestHostInstance
+            - PublicIp
+    Export:
+        Name: !Sub "${EnvironmentName}-TestHost-PUB-IP"

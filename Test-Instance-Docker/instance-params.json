@@ -1,0 +1,18 @@
+[
+    {   
+        "ParameterKey": "EnvironmentName",
+        "ParameterValue": "Test-Host"
+    },
+    {   
+        "ParameterKey": "KeyName",
+        "ParameterValue": "test-instance-udacity-cloudformation"
+    },
+    {   
+        "ParameterKey": "VpcCIDR",
+        "ParameterValue": "10.20.0.0/16"
+    },
+    {   
+        "ParameterKey": "PublicSubnetCIDR",
+        "ParameterValue": "10.20.0.0/24"
+    }
+]
